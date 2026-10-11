@@ -94,6 +94,14 @@ const i18n = (function () {
       if (select) {
         select.value = currentLanguage;
       }
+
+      // Modules that render from JS (e.g. the reception log header) drew
+      // before the locale loaded; let them re-render in the active language.
+      window.dispatchEvent(
+        new CustomEvent('languageChanged', {
+          detail: { language: currentLanguage },
+        })
+      );
     },
 
     /**
@@ -167,6 +175,14 @@ const i18n = (function () {
      * @param {HTMLElement} [rootElement=document]
      */
     applyTranslations(rootElement = document) {
+      if (rootElement === document) {
+        document.documentElement.lang = currentLanguage;
+        const pageTitle = this.t('header.pageTitle');
+        if (pageTitle !== 'header.pageTitle') {
+          document.title = pageTitle;
+        }
+      }
+
       // Text replacement
       rootElement.querySelectorAll('[data-i18n]').forEach((el) => {
         const key = el.getAttribute('data-i18n');

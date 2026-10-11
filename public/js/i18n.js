@@ -207,6 +207,14 @@ const i18n = (function () {
         }
       });
 
+      // aria-label replacement (screen readers)
+      rootElement.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+        const key = el.getAttribute('data-i18n-aria-label');
+        if (key) {
+          el.setAttribute('aria-label', this.t(key));
+        }
+      });
+
       // Title attribute replacement (tooltips)
       rootElement.querySelectorAll('[data-i18n-title]').forEach((el) => {
         const key = el.getAttribute('data-i18n-title');

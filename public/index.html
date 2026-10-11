@@ -238,11 +238,12 @@
         <div class="control-section">
           <div class="control-section-title" data-i18n="control.serviceSection">サービスサーチ & 機能</div>
           <div class="button-grid button-grid-3">
-            <button class="btn" data-key="P">POL</button>
-            <button class="btn" data-key="H">HP</button>
-            <button class="btn" data-key="W">WX</button>
-            <button class="btn" data-key="T">STATE</button>
-            <button class="btn" data-key="S">SRCH</button>
+            <button class="btn" data-key="P" title="POL: 州警察/DOTトグル / FUNC+POL: Priority 切替">POL</button>
+            <button class="btn" disabled title="BearTracker HP: 本体のみのボタン。リモートプロトコルに対応キーが存在しないため操作不可。MENU → Set Bear Tracker から設定可能">HP</button>
+            <button class="btn" data-key="G" title="GPSモード切替 / FUNC+長押し: 現在地保存 (要GPS受信機)">GPS</button>
+            <button class="btn" data-key="W" title="WX: 短押し/FUNC+WX: アラート優先 / FUNC+長押し: WXスキャン">WX</button>
+            <button class="btn" data-key="Q" title="SQノブ押下: アラートミュート切替 / FUNC+Q: クローズコール切替 / FUNC+長押し: CC Only">SQ</button>
+            <button class="btn" data-key="S" title="実機では Scan/SRCH 兼用ボタン: スキャン中=スキャン再開 / サーチ中=サーチ再開 / FUNC+S: クイックサーチ">SRCH</button>
             <button class="btn btn-warning" data-key="L" data-i18n-title="control.loTooltip" title="短押し: 一時ロックアウト / 長押し: 全ロック解除">L/O</button>
           </div>
         </div>
@@ -324,6 +325,21 @@
               <span class="preview-label" data-i18n="control.preview">プレビュー</span>
               <span id="template-preview-text">---</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Scanner Settings (Tone-Out / Search) & Mode Shortcuts -->
+        <div class="control-section">
+          <div class="control-section-title" data-i18n="settings.sectionTitle">スキャナー設定・ショートカット</div>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="scannerSettings.open()" data-i18n="settings.open">⚙ 設定を開く</button>
+          </div>
+          <div class="btn-row shortcut-row" data-i18n-title="settings.shortcutHint" title="本体メニューへのダイレクトジャンプ (MNU)。仮想LCDでメニューを操作できます">
+            <button class="btn btn-sm" onclick="scannerSettings.jump('WX_MENU')" data-i18n="settings.shortcutWx">WX操作</button>
+            <button class="btn btn-sm" onclick="scannerSettings.jump('CCBAND_MENU')" data-i18n="settings.shortcutCc">CCバンド</button>
+            <button class="btn btn-sm" onclick="scannerSettings.jump('SCR_OPT_MENU')" data-i18n="settings.shortcutBc">ブロードキャスト</button>
+            <button class="btn btn-sm" onclick="scannerSettings.jump('GL_LIST_MENU')" data-i18n="settings.shortcutGl">G/L-O確認</button>
+            <button class="btn btn-sm" onclick="scannerSettings.jump('SETTING_MENU')" data-i18n="settings.shortcutSet">本体設定</button>
           </div>
         </div>
 
@@ -989,10 +1005,90 @@
   </aside>
 
   <!-- JavaScript -->
+  <!-- Scanner Settings Modal (Tone-Out / Search settings) -->
+  <div class="modal-overlay hidden" id="modal-scanner-settings">
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <h3 data-i18n="settings.title">⚙ スキャナー設定</h3>
+        <button class="modal-close-btn" onclick="scannerSettings.close()">✕</button>
+      </div>
+      <div class="settings-tabs">
+        <button class="settings-tab active" id="settings-tab-toneout" onclick="scannerSettings.switchTab('toneout')" data-i18n="settings.tabToneOut">トーンアウト</button>
+        <button class="settings-tab" id="settings-tab-search" onclick="scannerSettings.switchTab('search')" data-i18n="settings.tabSearch">サーチ設定</button>
+      </div>
+      <div class="modal-body">
+        <div id="settings-panel-toneout">
+          <p class="modal-hint" data-i18n="settings.toneOutHint">
+            消防・救急のページングトーン監視用 10ch の設定。周波数は MHz、トーンは Hz（0 = トーンなし）。
+            本体では MENU → Tone-Out for... でスタンバイ開始します。
+          </p>
+          <div class="settings-table-wrap">
+            <table class="settings-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th data-i18n="settings.colName">名称</th>
+                  <th data-i18n="settings.colFreq">周波数 (MHz)</th>
+                  <th data-i18n="settings.colToneA">トーンA (Hz)</th>
+                  <th data-i18n="settings.colToneB">トーンB (Hz)</th>
+                  <th data-i18n="settings.colDelay">遅延 (s)</th>
+                </tr>
+              </thead>
+              <tbody id="toneout-tbody"></tbody>
+            </table>
+          </div>
+          <div class="settings-status" id="toneout-status"></div>
+        </div>
+        <div id="settings-panel-search" class="hidden">
+          <p class="modal-hint" data-i18n="settings.searchHint">
+            カスタムサーチ 10 帯域の編集。L/O = サーチ対象から除外。「保存」で実機へ一括書き込み (PRGモード) します。
+          </p>
+          <div class="settings-table-wrap">
+            <table class="settings-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th data-i18n="settings.colName">名称</th>
+                  <th data-i18n="settings.colLower">下限 (MHz)</th>
+                  <th data-i18n="settings.colUpper">上限 (MHz)</th>
+                  <th data-i18n="settings.colStep">ステップ</th>
+                  <th data-i18n="settings.colMod">変調</th>
+                  <th data-i18n="settings.colDelay">遅延 (s)</th>
+                  <th>L/O</th>
+                </tr>
+              </thead>
+              <tbody id="csp-tbody"></tbody>
+            </table>
+          </div>
+          <div class="settings-subtitle" data-i18n="settings.serviceSearchTitle">サービスサーチ (米国帯域。日本では通常ロック)</div>
+          <div class="settings-table-wrap">
+            <table class="settings-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th data-i18n="settings.colName">名称</th>
+                  <th data-i18n="settings.colDelay">遅延 (s)</th>
+                  <th>L/O</th>
+                </tr>
+              </thead>
+              <tbody id="ssp-tbody"></tbody>
+            </table>
+          </div>
+          <div class="settings-status" id="search-status"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="scannerSettings.reload()" data-i18n="settings.reload">🔄 読み直し</button>
+        <button class="btn btn-primary" onclick="scannerSettings.save()" data-i18n="settings.save">💾 保存 (実機へ書込)</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/i18n.js"></script>
   <script src="/js/app.js"></script>
   <script src="/js/audioPlayer.js"></script>
   <script src="/js/memoryEditor.js"></script>
+  <script src="/js/scannerSettings.js"></script>
   <script src="/js/scannerDisplay.js"></script>
   <script src="/js/controlPanel.js"></script>
   <script src="/js/recordingPanel.js"></script>

@@ -43,6 +43,10 @@ class AppServer {
     const ProgrammingController = require('./scanner/programmingController');
     this._programmingController = new ProgrammingController(this._serialController);
 
+    /** @type {import('./scanner/settingsController')} */
+    const SettingsController = require('./scanner/settingsController');
+    this._settingsController = new SettingsController(this._programmingController);
+
     /** @type {AudioStreamer} */
     this._audioStreamer = new AudioStreamer(config.audio, this._mockMode);
 
@@ -154,6 +158,7 @@ class AppServer {
       scannerState: this._scannerState,
       audioRecorder: this._audioRecorder,
       audioStreamer: this._audioStreamer,
+      settingsController: this._settingsController,
       config,
     });
     this._app.use('/api', apiRoutes);

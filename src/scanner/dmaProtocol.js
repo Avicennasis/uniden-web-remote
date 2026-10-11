@@ -377,6 +377,340 @@ function parseCsyResponse(response) {
 }
 
 /**
+ * Parse SHK (Search Key Settings) response
+ * Format: SHK,[SRCH_KEY_1],[SRCH_KEY_2],[SRCH_KEY_3],[RSV],[RSV],[RSV]
+ * Verified on BCT15X: SHK,CUSTOM_1,PublicSafety,B_SCOPE,,,
+ * @param {string} response - Response string
+ * @returns {Object|null} {searchKey1, searchKey2, searchKey3, rawParts}
+ */
+function parseShkResponse(response) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'SHK' || parts.length < 4) {
+    return null;
+  }
+  return {
+    searchKey1: parts[1] || null,
+    searchKey2: parts[2] || null,
+    searchKey3: parts[3] || null,
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse SSP (Service Search Settings) response
+ * Verified on BCT15X (GET echoes the index): SSP,1,2,0,2,1,.,.,1,NONE,,,
+ * @param {string} response - Response string
+ * @param {number} index - Queried search index
+ * @returns {Object|null}
+ */
+function parseSspResponse(response, index) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'SSP' || parts.length < 8) {
+    return null;
+  }
+  // BCT15X echoes the queried index as field 1 (unlike the BCT15 doc)
+  const off = parts[1] === String(index) ? 2 : 1;
+  return {
+    id: index,
+    delay: parseInt(parts[off], 10) || 0,
+    attenuator: parts[off + 1] === '1',
+    holdTime: parseInt(parts[off + 2], 10) || 0,
+    lockout: parts[off + 3] === '1',
+    quickKey: parts[off + 4] === '.' || parts[off + 4] === undefined ? null : parseInt(parts[off + 4], 10),
+    startKey: parts[off + 5] === '.' || parts[off + 5] === undefined ? null : parts[off + 5],
+    record: parts[off + 6] === '1',
+    name: parts[off + 7] && parts[off + 7] !== '' ? parts[off + 7] : null,
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse CSP (Custom Search Settings) response
+ * Verified on BCT15X (GET does NOT echo the index):
+ * CSP,Custom 1,00250000,00279999,AUTO,AUTO,0,2,,2,1,0,,,.,.,0,NONE,,,
+ * @param {string} response - Response string
+ * @param {number} index - Queried custom search index
+ * @returns {Object|null}
+ */
+function parseCspResponse(response, index) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'CSP' || parts.length < 16) {
+    return null;
+  }
+  return {
+    id: index,
+    name: parts[1] ? parts[1].trim() : `Custom ${index}`,
+    lowerFrequency: fromRawFrequency(parts[2]),
+    upperFrequency: fromRawFrequency(parts[3]),
+    lowerRaw: parts[2],
+    upperRaw: parts[3],
+    step: parts[4] || 'AUTO',
+    modulation: parts[5] || 'AUTO',
+    attenuator: parts[6] === '1',
+    delay: parseInt(parts[7], 10) || 0,
+    dataSkip: parts[8] === '1',
+    holdTime: parseInt(parts[9], 10) || 0,
+    lockout: parts[10] === '1',
+    controlChannelOnly: parts[11] === '1',
+    quickKey: parts[14] === '.' || parts[14] === undefined ? null : parseInt(parts[14], 10),
+    startKey: parts[15] === '.' || parts[15] === undefined ? null : parts[15],
+    record: parts[16] === '1',
+    rawParts: parts,
+  };
+}
+
+/**
+ * Build CSP (Custom Search Settings) write command
+ * Mirrors the read field order verified on BCT15X
+ * @param {Object} csp - Custom search data object
+ * @returns {string} Command string
+ */
+function buildCspCommand(csp) {
+  const name = (csp.name || '').substring(0, 16);
+  const lower = csp.lowerRaw || toRawFrequency(csp.lowerFrequency);
+  const upper = csp.upperRaw || toRawFrequency(csp.upperFrequency);
+  const step = csp.step || 'AUTO';
+  const mod = csp.modulation || 'AUTO';
+  const att = csp.attenuator ? '1' : '0';
+  const dly = csp.delay !== undefined ? csp.delay : 2;
+  const skp = csp.dataSkip ? '1' : '0';
+  const hld = csp.holdTime !== undefined ? csp.holdTime : 2;
+  const lout = csp.lockout ? '1' : '0';
+  const cch = csp.controlChannelOnly ? '1' : '0';
+  const qk = csp.quickKey !== null && csp.quickKey !== undefined ? csp.quickKey : '.';
+  const start = csp.startKey || '.';
+  const rec = csp.record ? '1' : '0';
+  return `CSP,${name},${lower},${upper},${step},${mod},${att},${dly},${skp},${hld},${lout},${cch},,,${qk},${start},${rec},NONE,,,`;
+}
+
+/**
+ * Parse CSG (Custom Search Group enable) response
+ * Verified on BCT15X: CSG,0000000000 (0=valid/enabled, 1=invalid/disabled)
+ * @param {string} response - Response string
+ * @returns {Object|null} {enabled: boolean[10]}
+ */
+function parseCsgResponse(response) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'CSG' || !parts[1]) {
+    return null;
+  }
+  const flags = parts[1].padEnd(10, '0').slice(0, 10);
+  return {
+    enabled: flags.split('').map((f) => f === '0'),
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse WXS (Weather Settings) response
+ * Verified on BCT15X: WXS,2,0,0,0,,
+ * @param {string} response - Response string
+ * @returns {Object|null}
+ */
+function parseWxsResponse(response) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'WXS' || parts.length < 5) {
+    return null;
+  }
+  return {
+    delay: parseInt(parts[1], 10) || 0,
+    attenuator: parts[2] === '1',
+    alertPriority: parts[3] === '1',
+    record: parts[4] === '1',
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse SGP (SAME Group Settings) response
+ * Verified on BCT15X: SGP,SAME 1,------,------,...(8 FIPS codes)
+ * @param {string} response - Response string
+ * @param {number} index - SAME group index (1-5)
+ * @returns {Object|null}
+ */
+function parseSgpResponse(response, index) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'SGP' || parts.length < 9) {
+    return null;
+  }
+  return {
+    id: index,
+    name: parts[1] ? parts[1].trim() : `SAME ${index}`,
+    fipsCodes: parts.slice(2, 10).map((c) => (c === '------' || c === '' ? null : c)),
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse SCO (Search/Close Call common options) response
+ * Verified on BCT15X: SCO,,AUTO,0,2,,1,0001101111111111,1,,,100,0,,,
+ * @param {string} response - Response string
+ * @returns {Object|null}
+ */
+function parseScoResponse(response) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'SCO') {
+    return null;
+  }
+  return {
+    step: parts[1] || 'AUTO',
+    modulation: parts[2] || 'AUTO',
+    attenuator: parts[3] === '1',
+    delay: parseInt(parts[4], 10) || 0,
+    repeaterFind: parts[6] === '1',
+    bandMask: parts[7] || null,
+    maxAutoStore: parseInt(parts[11], 10) || 0,
+    record: parts[12] === '1',
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse BBS (Broadcast Screen Band) response
+ * Verified on BCT15X: BBS,00000000,00000000
+ * @param {string} response - Response string
+ * @param {number} index - Band index (1-9, 0=10)
+ * @returns {Object|null}
+ */
+function parseBbsResponse(response, index) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'BBS' || parts.length < 3) {
+    return null;
+  }
+  return {
+    id: index,
+    lowerFrequency: fromRawFrequency(parts[1]),
+    upperFrequency: fromRawFrequency(parts[2]),
+    lowerRaw: parts[1],
+    upperRaw: parts[2],
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse CBP (Custom Search Band Plan) response
+ * Verified on BCT15X: CBP,STD,,,... (STD = standard band plan)
+ * @param {string} response - Response string
+ * @param {number} index - Custom search index
+ * @returns {Object|null}
+ */
+function parseCbpResponse(response, index) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'CBP') {
+    return null;
+  }
+  if (parts[1] === 'STD') {
+    return { id: index, standard: true, rawParts: parts };
+  }
+  return {
+    id: index,
+    standard: false,
+    baseFrequencies: parts.slice(1, 10),
+    rawParts: parts,
+  };
+}
+
+/**
+ * Parse TON (Tone-Out settings) response
+ * Verified on BCT15X: TON,1,Tone-Out 1,01370000,FM,0,2,0,0,0,,0,,,0,,0,,,
+ * @param {string} response - Response string
+ * @param {number} index - Tone-out channel index (1-9, 0=10th)
+ * @returns {Object|null}
+ */
+function parseTonResponse(response, index) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'TON' || parts.length < 12) {
+    return null;
+  }
+  const off = parts[1] === String(index) ? 2 : 1;
+  const toneA = parseFloat(parts[off + 7]);
+  const toneB = parseFloat(parts[off + 9]);
+  return {
+    id: index,
+    name: parts[off] ? parts[off].trim() : `Tone-Out ${index}`,
+    frequency: fromRawFrequency(parts[off + 1]),
+    rawFrequency: parts[off + 1],
+    modulation: parts[off + 2] || 'FM',
+    attenuator: parts[off + 3] === '1',
+    delay: parseInt(parts[off + 4], 10) || 0,
+    alertTone: parseInt(parts[off + 5], 10) || 0,
+    alertLevel: parseInt(parts[off + 6], 10) || 0,
+    toneA: !isNaN(toneA) && toneA > 0 ? toneA / 10 : 0,
+    toneB: !isNaN(toneB) && toneB > 0 ? toneB / 10 : 0,
+    record: parts[off + 12] === '1',
+    alertColor: parts[off + 13] || null,
+    alertPattern: parts[off + 14] || null,
+    rawParts: parts,
+  };
+}
+
+/**
+ * Build TON (Tone-Out settings) write command (XT-family format, verified approach
+ * against FreeSCAN which programs the BCT15X with this layout)
+ * @param {Object} ton - Tone-out channel object
+ * @returns {string} Command string
+ */
+function buildTonCommand(ton) {
+  const name = (ton.name || '').substring(0, 16);
+  const rawFreq = ton.rawFrequency || toRawFrequency(ton.frequency);
+  const mod = ton.modulation || 'FM';
+  const att = ton.attenuator ? '1' : '0';
+  const dly = ton.delay !== undefined ? ton.delay : 2;
+  const alertTone = ton.alertTone !== undefined ? ton.alertTone : 0;
+  const alertLevel = ton.alertLevel !== undefined ? ton.alertLevel : 0;
+  const toneA = ton.toneA ? Math.round(parseFloat(ton.toneA) * 10) : 0;
+  const toneB = ton.toneB ? Math.round(parseFloat(ton.toneB) * 10) : 0;
+  const color = ton.alertColor || 'OFF';
+  const pattern = ton.alertPattern !== undefined ? ton.alertPattern : 0;
+  const agc = ton.agc !== undefined ? ton.agc : 1;
+  return `TON,${ton.id},${name},${rawFreq},${mod},${att},${dly},${alertTone},${alertLevel},${toneA},,${toneB},,,,${color},${pattern},${agc},,`;
+}
+
+/**
+ * Parse GDO (GPS display settings) response
+ * Verified on BCT15X: GDO,0,0,0,-10.0,DMS
+ * @param {string} response - Response string
+ * @returns {Object|null}
+ */
+function parseGdoResponse(response) {
+  const parts = response.trim().split(',');
+  if (parts[0] !== 'GDO' || parts.length < 6) {
+    return null;
+  }
+  return {
+    displayMode: parseInt(parts[1], 10) || 0,
+    metric: parts[2] === '1',
+    hour24: parts[3] === '1',
+    timeZone: parts[4] || '0.0',
+    coordinateFormat: parts[5] || 'DMS',
+    rawParts: parts,
+  };
+}
+
+/**
+ * Build GDO (GPS display settings) write command
+ * @param {Object} gdo - GPS settings object
+ * @returns {string} Command string
+ */
+function buildGdoCommand(gdo) {
+  const disp = gdo.displayMode !== undefined ? gdo.displayMode : 0;
+  const metric = gdo.metric ? '1' : '0';
+  const hour24 = gdo.hour24 ? '1' : '0';
+  const tz = gdo.timeZone !== undefined ? gdo.timeZone : '0.0';
+  const fmt = gdo.coordinateFormat || 'DMS';
+  return `GDO,${disp},${metric},${hour24},${tz},${fmt}`;
+}
+
+/**
+ * Parse MNU (direct menu jump) response
+ * @param {string} response - "MNU,OK" / "MNU,NG" / "ERR"
+ * @returns {boolean} True when the menu jump was accepted
+ */
+function parseMnuResponse(response) {
+  return response.trim().startsWith('MNU,OK');
+}
+
+/**
  * Parse AGC (Append Group Channel) response
  * @param {string} response - "AGC,[GRP_INDEX]"
  * @returns {number} Created group index (-1 on failure)
@@ -469,4 +803,19 @@ module.exports = {
   buildSinCommand,
   buildGinCommand,
   buildCinCommand,
+  parseShkResponse,
+  parseSspResponse,
+  parseCspResponse,
+  buildCspCommand,
+  parseCsgResponse,
+  parseWxsResponse,
+  parseSgpResponse,
+  parseScoResponse,
+  parseBbsResponse,
+  parseCbpResponse,
+  parseTonResponse,
+  buildTonCommand,
+  parseGdoResponse,
+  buildGdoCommand,
+  parseMnuResponse,
 };

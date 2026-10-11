@@ -417,7 +417,16 @@ class SerialController extends EventEmitter {
       case 'STS':
         return this._mockStsResponse();
 
+      case 'PRG':
+        return 'PRG,OK';
+
+      case 'EPG':
+        return 'EPG,OK';
+
       default:
+        if (cmd.startsWith('MNU,')) {
+          return 'MNU,OK';
+        }
         if (cmd.startsWith('KEY,')) {
           const parts = cmd.split(',');
           const key = parts[1];

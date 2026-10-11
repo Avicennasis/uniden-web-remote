@@ -16,10 +16,11 @@ const { saveRuntimeConfig } = require('../config/runtimeConfig');
  * @param {import('../scanner/scannerState')} deps.scannerState - Scanner state
  * @param {import('../audio/audioRecorder')} deps.audioRecorder - Audio recorder
  * @param {import('../audio/audioStreamer')} deps.audioStreamer - Audio streamer
+ * @param {import('../scanner/settingsController')} deps.settingsController - Scanner settings controller
  * @param {Object} deps.config - System config
  * @returns {express.Router} Express router
  */
-function createRoutes({ serialController, scannerState, audioRecorder, audioStreamer, config }) {
+function createRoutes({ serialController, scannerState, audioRecorder, audioStreamer, settingsController, config }) {
   const router = express.Router();
   const authConfig = config.auth || {};
 
@@ -163,6 +164,118 @@ function createRoutes({ serialController, scannerState, audioRecorder, audioStre
     const { id } = req.params;
     scannerState.removeTemporaryLockout(id);
     res.json({ removed: true, id });
+  });
+
+  // ------ Scanner Settings (PRG-mode wrapped, verified on BCT15X) ------
+
+  /**
+   * GET /api/scanner/settings - Read search / custom search / WX / SAME / SCO settings
+   */
+  router.get('/scanner/settings', requireOperator(authConfig), async (req, res) => {
+    try {
+      const settings = await settingsController.getSearchSettings();
+      res.json(settings);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/scanner/toneout - Read all 10 tone-out channels (TON command)
+   */
+  router.get('/scanner/toneout', requireOperator(authConfig), async (req, res) => {
+    try {
+      const toneOuts = await settingsController.getToneOuts();
+      res.json({ toneOuts });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/scanner/toneout - Write tone-out channels (accepts a subset)
+   * @body {Array} toneOuts - Array of tone-out channel objects
+   */
+  router.post('/scanner/toneout', requireOperator(authConfig), async (req, res) => {
+    try {
+      const { toneOuts } = req.body;
+      const result = await settingsController.setToneOuts(toneOuts);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/scanner/gps-settings - Read GPS display settings (GDO)
+   */
+  router.get('/scanner/gps-settings', requireOperator(authConfig), async (req, res) => {
+    try {
+      const gps = await settingsController.getGpsSettings();
+      res.json(gps);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * PUT /api/scanner/gps-settings - Write GPS display settings (GDO)
+   * @body {Object} - {displayMode, metric, hour24, timeZone, coordinateFormat}
+   */
+  router.put('/scanner/gps-settings', requireOperator(authConfig), async (req, res) => {
+    try {
+      const result = await settingsController.setGpsSettings(req.body);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/scanner/custom-searches - Write custom search settings (CSP) + optional CSG enable mask
+   * @body {Array} customSearches - Array of custom search objects
+   * @body {boolean[]} [enabled] - CSG enable flags (10 entries)
+   */
+  router.post('/scanner/custom-searches', requireOperator(authConfig), async (req, res) => {
+    try {
+      const { customSearches, enabled } = req.body;
+      const result = await settingsController.setCustomSearches(customSearches, enabled);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/scanner/service-searches - Write service search settings (SSP)
+   * @body {Array} serviceSearches - Array of service search objects
+   */
+  router.post('/scanner/service-searches', requireOperator(authConfig), async (req, res) => {
+    try {
+      const { serviceSearches } = req.body;
+      const result = await settingsController.setServiceSearches(serviceSearches);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/scanner/menu-jump - Jump directly to a built-in menu (MNU command)
+   * @body {string} menu - One of SVC_MENU, WX_MENU, CCBAND_MENU, SCR_OPT_MENU, GL_LIST_MENU, SETTING_MENU
+   */
+  const MNU_MENUS = ['SVC_MENU', 'WX_MENU', 'CCBAND_MENU', 'SCR_OPT_MENU', 'GL_LIST_MENU', 'SETTING_MENU'];
+  router.post('/scanner/menu-jump', requireOperator(authConfig), async (req, res) => {
+    try {
+      const { menu } = req.body;
+      if (!MNU_MENUS.includes(menu)) {
+        return res.status(400).json({ error: `menu must be one of: ${MNU_MENUS.join(', ')}` });
+      }
+      const response = await serialController.sendCommand(`MNU,${menu}`);
+      res.json({ menu, response, ok: response.includes('MNU,OK') });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   /**

@@ -307,14 +307,31 @@ function parseStsResponse(rawResponse) {
     idx += 2;
   }
 
-  // Extract optional status indicators (SQL, MUT, SIG)
-  const sqlVal = idx < fields.length ? fields[idx++] : null;
-  const mutVal = idx < fields.length ? fields[idx++] : null;
-  const sigVal = idx < fields.length ? fields[idx++] : null;
+  // Extract trailing status indicators.
+  // Official format: SQL,MUT,RSV,WAT,LED_1,LED_2,SIG_LVL,BK_COLOR,BK_DIMMER
+  // (BK_COLOR may be empty on BCT15X — verified on real hardware 2026-10-11)
+  const pick = () => (idx < fields.length ? fields[idx++] : null);
+  const sqlVal = pick();
+  const mutVal = pick();
+  const rsvVal = pick();
+  const watVal = pick();
+  const ccLedVal = pick();
+  const alertLedVal = pick();
+  const sigLvlVal = pick();
+  const bkColorVal = pick();
+  const bkDimmerVal = pick();
 
   const squelch = sqlVal !== null ? sqlVal === '1' : false;
   const mute = mutVal !== null ? mutVal === '1' : false;
-  let sig = sigVal !== null && !isNaN(parseInt(sigVal, 10)) ? parseInt(sigVal, 10) : 0;
+  let sig = sigLvlVal !== null && !isNaN(parseInt(sigLvlVal, 10)) ? parseInt(sigLvlVal, 10) : 0;
+
+  // WAT: 0 = No Alert, 1 = Alert, 6-digit SAME code when SAME alert active
+  let weatherAlert = null;
+  if (watVal !== null && watVal !== '') {
+    if (watVal === '1') weatherAlert = true;
+    else if (/^\d{6}$/.test(watVal)) weatherAlert = watVal;
+    else weatherAlert = false;
+  }
 
   // Detect signal meter character in Line 1 (Uniden hardware places antenna bar characters at the end of Line 1)
   let detectedSig = 0;
@@ -367,6 +384,13 @@ function parseStsResponse(rawResponse) {
     signalLevel: sig,
     squelch,
     mute,
+    weatherAlert,
+    ccLed: ccLedVal === '1',
+    alertLed: alertLedVal === '1',
+    backlightColor: bkColorVal,
+    backlightDimmer: bkDimmerVal !== null && bkDimmerVal !== '' && !isNaN(parseInt(bkDimmerVal, 10))
+      ? parseInt(bkDimmerVal, 10)
+      : null,
   };
 }
 
